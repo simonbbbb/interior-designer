@@ -11,6 +11,7 @@ export function UploadModal() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -18,11 +19,21 @@ export function UploadModal() {
       setError(null);
       setDetecting(true);
 
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = reader.result as string;
+      try {
+        let dataUrl: string;
+
+        if (file.type === 'application/pdf') {
+          setError('PDF support requires server-side conversion. Please convert your PDF to PNG or JPG first.');
+          setDetecting(false);
+          setIsDigitizing(false);
+          return;
+        } else {
+          dataUrl = await fileToDataUrl(file);
+        }
+
         setBackgroundImage(dataUrl);
 
+        // Try digitization
         try {
           const response = await fetch('/api/digitize', {
             method: 'POST',
@@ -31,53 +42,47 @@ export function UploadModal() {
           });
           const result = await response.json();
 
-          if (result.fallback || (!result.walls || result.walls.length === 0)) {
-            setError('Auto-detection found no walls. Use the Draw Wall tool to trace over your plan.');
-          } else {
-            // Convert AI results to Zustand walls
-            const walls: Wall[] = (result.walls || []).map((w: any) => ({
-              id: w.id,
-              start: { x: w.start.x, y: w.start.y },
-              end: { x: w.end.x, y: w.end.y },
+          if (result.walls && result.walls.length > 0) {
+            const walls: Wall[] = result.walls.map((w: Record<string, unknown>) => ({
+              id: w.id as string,
+              start: { x: (w.start as Record<string, number>).x, y: (w.start as Record<string, number>).y },
+              end: { x: (w.end as Record<string, number>).x, y: (w.end as Record<string, number>).y },
               type: 'standard' as const,
-              thickness: w.thickness ?? 6,
-              confidence: w.confidence,
+              thickness: (w.thickness as number) ?? 6,
+              confidence: w.confidence as number,
               source: 'ai' as const,
             }));
-
-            const doors: Door[] = (result.doors || []).map((d: any) => ({
-              id: d.id,
-              wallId: d.wallId,
-              offsetFromStart: d.offsetFromStart,
-              width: d.width,
-              swingDirection: d.swingDirection,
+            const doors: Door[] = (result.doors || []).map((d: Record<string, unknown>) => ({
+              id: d.id as string,
+              wallId: d.wallId as string,
+              offsetFromStart: d.offsetFromStart as number,
+              width: d.width as number,
+              swingDirection: d.swingDirection as 'left' | 'right',
             }));
-
-            const windows: Window[] = (result.windows || []).map((wi: any) => ({
-              id: wi.id,
-              wallId: wi.wallId,
-              offsetFromStart: wi.offsetFromStart,
-              width: wi.width,
-              sillHeight: wi.sillHeight,
+            const windows: Window[] = (result.windows || []).map((wi: Record<string, unknown>) => ({
+              id: wi.id as string,
+              wallId: wi.wallId as string,
+              offsetFromStart: wi.offsetFromStart as number,
+              width: wi.width as number,
+              sillHeight: wi.sillHeight as number,
             }));
-
-            // Bulk add to store
             useEditorStore.getState().setWalls(walls);
             useEditorStore.getState().setDoors(doors);
             useEditorStore.getState().setWindows(windows);
-
-            // Close modal - user can now edit the detected walls
             setShowUploadModal(false);
+          } else {
+            setError('Could not auto-detect walls. Use the Draw Wall tool to trace over your plan.');
           }
-        } catch (err) {
-          console.error('[Upload] Digitization failed:', err);
-          setError('Digitization service unavailable. Drawing tools are ready for manual tracing.');
+        } catch {
+          setError('Digitization unavailable. Use the Draw Wall tool to trace over your plan.');
         }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to process file.';
+        setError(message);
+      }
 
-        setDetecting(false);
-        setIsDigitizing(false);
-      };
-      reader.readAsDataURL(file);
+      setDetecting(false);
+      setIsDigitizing(false);
     },
     [setBackgroundImage, setShowUploadModal, setIsDigitizing],
   );
@@ -85,66 +90,72 @@ export function UploadModal() {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      setDragOver(false);
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
     },
     [handleFile],
   );
 
-  const dismiss = () => {
-    setShowUploadModal(false);
-  };
+  const dismiss = () => setShowUploadModal(false);
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
-      <div className="pointer-events-auto relative mx-4 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
+    <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
+      <div className="pointer-events-auto relative mx-4 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-2xl">
         <button
           onClick={dismiss}
-          className="absolute right-3 top-3 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          title="Dismiss"
+          className="absolute right-4 top-4 rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
         >
           ✕
         </button>
 
-        <div className="mb-2 text-center text-3xl">&#127968;</div>
-        <h2 className="mb-1 text-center text-lg font-semibold text-gray-900">
-          Upload Your Floorplan
+        <div className="mb-1 text-center text-4xl">&#127968;</div>
+        <h2 className="mb-1 text-center text-xl font-bold text-gray-900">
+          Upload Floorplan
         </h2>
-        <p className="mb-4 text-center text-xs text-gray-500">
-          Or close this and start drawing walls from scratch
+        <p className="mb-6 text-center text-sm text-gray-500">
+          Drop your file below or click to browse. We'll try to auto-detect walls.
         </p>
 
         {detecting ? (
-          <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-8 text-center">
-            <div className="text-center text-2xl">&#9881;</div>
-            <p className="mt-2 text-sm font-medium text-blue-700">
-              Detecting walls and openings...
-            </p>
+          <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-8 text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600" />
+            <p className="font-medium text-blue-700">Detecting walls...</p>
             <p className="mt-1 text-xs text-blue-500">
-              This may take a few seconds
+              Analyzing your floorplan image
             </p>
           </div>
         ) : (
           <div
             onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
             onClick={() => fileInputRef.current?.click()}
-            className="cursor-pointer rounded-lg border-2 border-dashed border-gray-300 p-8 transition-colors hover:border-blue-400 hover:bg-blue-50"
+            className={
+              'cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition-colors ' +
+              (dragOver
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/50')
+            }
           >
-            <div className="text-center text-2xl">&#128193;</div>
-            <p className="mt-2 text-center text-sm text-gray-500">
-              Drop your floorplan here or click to select
+            <div className="text-3xl">&#128193;</div>
+            <p className="mt-3 text-sm font-medium text-gray-700">
+              Drop your floorplan here, or click to browse
             </p>
-            <p className="mt-1 text-center text-xs text-gray-400">
-              Supports PNG, JPG (max 20MB)
+            <p className="mt-1 text-xs text-gray-400">
+              PNG, JPG — up to 20MB
             </p>
           </div>
         )}
 
         {error && (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <span className="font-semibold">Notice: </span>
-            {error}
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-sm text-red-700">
+              <span className="font-semibold">&#9888; </span>{error}
+            </p>
+            <p className="mt-2 text-xs text-red-500">
+              Tip: Click <strong>Draw Wall</strong> in the toolbar and trace over your plan.
+            </p>
           </div>
         )}
 
@@ -161,4 +172,13 @@ export function UploadModal() {
       </div>
     </div>
   );
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
