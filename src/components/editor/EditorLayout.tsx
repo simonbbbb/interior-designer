@@ -17,7 +17,7 @@ export function EditorLayout() {
   const hasBackground = useCanvasStore((s) => !!s.backgroundImage);
   const showUploadModal = useUIStore((s) => s.showUploadModal);
   const setShowUploadModal = useUIStore((s) => s.setShowUploadModal);
-  const showScaleCalibration = useUIStore((s) => s.showScaleCalibration);
+  const showScaleCalibration = useCanvasStore((s) => s.showScaleCalibration);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
 
   const walls = useEditorStore((s) => s.walls);

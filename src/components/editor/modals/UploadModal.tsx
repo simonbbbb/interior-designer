@@ -2,12 +2,12 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useCanvasStore, useEditorStore, useUIStore } from '@/store';
+import { pdfToDataUrl } from '@/lib/pdf-to-image';
 import type { Wall, Door, Window } from '@/types';
 
 export function UploadModal() {
   const setBackgroundImage = useCanvasStore((s) => s.setBackgroundImage);
   const setShowUploadModal = useUIStore((s) => s.setShowUploadModal);
-  const setIsDigitizing = useUIStore((s) => s.setIsDigitizing);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -15,7 +15,10 @@ export function UploadModal() {
 
   const handleFile = useCallback(
     async (file: File) => {
-      if (!file.type.startsWith('image/')) return;
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+        setError('Please upload a PNG, JPG, or PDF file.');
+        return;
+      }
       setError(null);
       setDetecting(true);
 
@@ -23,10 +26,7 @@ export function UploadModal() {
         let dataUrl: string;
 
         if (file.type === 'application/pdf') {
-          setError('PDF support requires server-side conversion. Please convert your PDF to PNG or JPG first.');
-          setDetecting(false);
-          setIsDigitizing(false);
-          return;
+          dataUrl = await pdfToDataUrl(file);
         } else {
           dataUrl = await fileToDataUrl(file);
         }
@@ -74,7 +74,8 @@ export function UploadModal() {
             setError('Could not auto-detect walls. Use the Draw Wall tool to trace over your plan.');
           }
         } catch {
-          setError('Digitization unavailable. Use the Draw Wall tool to trace over your plan.');
+          // Digitizer not available - that's fine, user can trace manually
+          setShowUploadModal(false);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to process file.';
@@ -82,9 +83,8 @@ export function UploadModal() {
       }
 
       setDetecting(false);
-      setIsDigitizing(false);
     },
-    [setBackgroundImage, setShowUploadModal, setIsDigitizing],
+    [setBackgroundImage, setShowUploadModal],
   );
 
   const handleDrop = useCallback(
@@ -106,12 +106,12 @@ export function UploadModal() {
           onClick={dismiss}
           className="absolute right-4 top-4 rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
         >
-          ✕
+          &#x2715;
         </button>
 
         <div className="mb-1 text-center text-4xl">&#127968;</div>
         <h2 className="mb-1 text-center text-xl font-bold text-gray-900">
-          Upload Floorplan
+          Upload Your Floorplan
         </h2>
         <p className="mb-6 text-center text-sm text-gray-500">
           Drop your file below or click to browse. We'll try to auto-detect walls.
@@ -120,9 +120,13 @@ export function UploadModal() {
         {detecting ? (
           <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-8 text-center">
             <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600" />
-            <p className="font-medium text-blue-700">Detecting walls...</p>
+            <p className="font-medium text-blue-700">
+              {fileInputRef.current?.files?.[0]?.type === 'application/pdf'
+                ? 'Converting PDF...'
+                : 'Detecting walls...'}
+            </p>
             <p className="mt-1 text-xs text-blue-500">
-              Analyzing your floorplan image
+              This will just take a moment
             </p>
           </div>
         ) : (
@@ -143,7 +147,7 @@ export function UploadModal() {
               Drop your floorplan here, or click to browse
             </p>
             <p className="mt-1 text-xs text-gray-400">
-              PNG, JPG — up to 20MB
+              PDF, PNG, JPG — up to 20MB
             </p>
           </div>
         )}
@@ -154,7 +158,7 @@ export function UploadModal() {
               <span className="font-semibold">&#9888; </span>{error}
             </p>
             <p className="mt-2 text-xs text-red-500">
-              Tip: Click <strong>Draw Wall</strong> in the toolbar and trace over your plan.
+              Tip: Select <strong>Draw Wall</strong> in the toolbar and trace over your plan.
             </p>
           </div>
         )}
@@ -162,7 +166,7 @@ export function UploadModal() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/png,image/jpeg"
+          accept="image/png,image/jpeg,application/pdf"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];

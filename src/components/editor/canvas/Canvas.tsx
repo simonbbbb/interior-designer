@@ -13,6 +13,7 @@ import {
   type Point as FabricPoint,
 } from 'fabric';
 import { useCanvasStore, useEditorStore, useHistoryStore } from '@/store';
+
 import { useKeyboard } from '@/lib/keyboard';
 import {
   snapToAngle,
@@ -173,6 +174,23 @@ export function Canvas() {
     // ---- object move -> sync store ----
     fc.on('object:moving', () => syncObjectToStore(fc));
     fc.on('object:scaling', () => syncObjectToStore(fc));
+
+    // ---- scale calibration clicks ----
+    const onCalibrateClick = (e: CustomEvent) => {
+      const rect = fc.getElement().getBoundingClientRect();
+      const pt = screenToCanvas(e.detail.x, e.detail.y, rect, fc.getZoom(), (fc as any).viewportTransform);
+
+      // Draw calibration marker
+      const marker = new Circle({
+        left: pt.x - 6, top: pt.y - 6, radius: 6, fill: '#10B981',
+        selectable: false, evented: false, opacity: 0.7,
+      });
+      fc.add(marker);
+      setTimeout(() => fc.remove(marker), 2000);
+
+      handleCalibrationClick(pt);
+    };
+    window.addEventListener('homeforge:calibrate-click', onCalibrateClick as EventListener);
 
     // ---- resize ----
     const onResize = () => {
@@ -462,7 +480,50 @@ export function Canvas() {
     }
   }
 
-  function syncWalls() {
+  // ============================================================
+// Calibration click handler
+// ============================================================
+function handleCalibrationClick(pt: Point) {
+  const ref = (window as any).__calibrationRef;
+  if (!ref || ref.step === 1) return;
+
+  // Draw marker
+  const fc = fcRef.current!;
+  const marker = new Circle({
+    left: pt.x - 6, top: pt.y - 6, radius: 6, fill: '#10B981',
+    selectable: false, evented: false, opacity: 0.7,
+  });
+  fc.add(marker);
+  setTimeout(() => fc.remove(marker), 2000);
+
+  if (!ref.origin) {
+    ref.origin = pt;
+    ref.step = 2;
+    window.dispatchEvent(new CustomEvent('homeforge:calibration-update', { detail: { step: 2, origin: pt } }));
+    return;
+  }
+
+  // Step 2: finish
+  const knownDist = (window as any).__calibrationDistance;
+  if (knownDist && knownDist > 0) {
+    const dx = pt.x - ref.origin.x;
+    const dy = pt.y - ref.origin.y;
+    const pixels = Math.sqrt(dx * dx + dy * dy);
+    const pixelsPerFoot = pixels / knownDist;
+    useCanvasStore.getState().setScale({
+      pixelsPerFoot,
+      origin: ref.origin,
+      endpoint: pt,
+      knownDistance: knownDist,
+    });
+    useCanvasStore.getState().setShowScaleCalibration(false);
+    ref.origin = null;
+    ref.step = 1;
+    window.dispatchEvent(new CustomEvent('homeforge:calibration-update', { detail: { step: 1, origin: null } }));
+  }
+}
+
+function syncWalls() {
     const fc = fcRef.current;
     if (!fc) return;
     const expected = new Set(walls.map((w) => `wall_${w.id}`));

@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import type { Point, Tool, Scale } from '@/types';
 
+/** Internal callback for scale calibration */
+type CalibrateHandler = (pt: Point) => void;
+let _calibrateClickHandler: CalibrateHandler | null = null;
+
+export function setCalibrateClickHandler(handler: CalibrateHandler) {
+  _calibrateClickHandler = handler;
+}
+export function getCalibrateClickHandler(): CalibrateHandler | null {
+  return _calibrateClickHandler;
+}
+
 interface CanvasState {
   zoom: number;
   pan: Point;
@@ -10,6 +21,7 @@ interface CanvasState {
   scale: Scale | null;
   backgroundImage: string | null;
   backgroundOpacity: number;
+  showScaleCalibration: boolean;
 
   setZoom: (zoom: number) => void;
   setPan: (pan: Point) => void;
@@ -19,6 +31,7 @@ interface CanvasState {
   setScale: (scale: Scale | null) => void;
   setBackgroundImage: (url: string | null) => void;
   setBackgroundOpacity: (opacity: number) => void;
+  setShowScaleCalibration: (show: boolean) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set) => ({
@@ -30,6 +43,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   scale: null,
   backgroundImage: null,
   backgroundOpacity: 0.5,
+  showScaleCalibration: false,
 
   setZoom: (zoom) => set({ zoom }),
   setPan: (pan) => set({ pan }),
@@ -39,4 +53,5 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   setScale: (scale) => set({ scale }),
   setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
   setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
+  setShowScaleCalibration: (showScaleCalibration) => set({ showScaleCalibration }),
 }));
