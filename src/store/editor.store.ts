@@ -31,6 +31,7 @@ interface EditorState {
   removeFurniture: (id: string) => void;
 
   // Clear all
+  setFurniture: (furniture: FurnitureInstance[]) => void;
   clearAll: () => void;
 }
 
@@ -81,4 +82,5 @@ export const useEditorStore = create<EditorState>((set) => ({
     })),
 
   clearAll: () => set({ walls: [], doors: [], windows: [], furniture: [] }),
+  setFurniture: (furniture) => set({ furniture }),
 }));

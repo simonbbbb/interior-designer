@@ -25,7 +25,9 @@ import {
   DEFAULT_PPF,
   formatFeet,
 } from '@/lib/canvas-utils';
-import type { Point, Wall, Door, Window, Tool } from '@/types';
+import { furnitureOverlapsWall, findFurnitureDefinition } from '@/lib/furniture-utils';
+import { getWallLengthFeet } from '@/lib/export-utils';
+import type { Point, Wall, Door, Window, Tool, FurnitureInstance } from '@/types';
 
 // ============================================================
 // Custom Fabric object with our homeforge ID
@@ -73,7 +75,9 @@ export function Canvas() {
   const walls = useEditorStore((s) => s.walls);
   const doors = useEditorStore((s) => s.doors);
   const windows = useEditorStore((s) => s.windows);
+  const furniture = useEditorStore((s) => s.furniture);
   const addWall = useEditorStore((s) => s.addWall);
+  const updateFurniture = useEditorStore((s) => s.updateFurniture);
 
   // ---- Initialize Fabric.js canvas (once) ----
   useEffect(() => {
@@ -388,6 +392,99 @@ export function Canvas() {
     syncWindows(fc, windows, walls);
   }, [windows, walls]);
 
+  // ---- Sync dimension labels to canvas ----
+  useEffect(() => {
+    const fc = fabricCanvasRef.current;
+    if (!fc) return;
+    syncDimensions(fc, walls, DEFAULT_PPF);
+  }, [walls]);
+
+  // ---- Sync furniture to canvas ----
+  useEffect(() => {
+    const fc = fabricCanvasRef.current;
+    if (!fc) return;
+    syncFurniture(fc, furniture, walls);
+  }, [furniture, walls]);
+
+  // ---- Furniture drag-drop from sidebar ----
+  useEffect(() => {
+    const fc = fabricCanvasRef.current;
+    if (!fc) return;
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      const data = e.dataTransfer?.getData('application/json');
+      if (!data || !fc) return;
+
+      try {
+        const item = JSON.parse(data);
+        const rect = fc.getElement().getBoundingClientRect();
+        const vpt = (fc as any).viewportTransform;
+        const zoom = fc.getZoom();
+        const canvasX = (e.clientX - rect.left - (vpt?.[4] ?? 0)) / zoom;
+        const canvasY = (e.clientY - rect.top - (vpt?.[5] ?? 0)) / zoom;
+
+        const scale = DEFAULT_PPF;
+        const instance = {
+          id: crypto.randomUUID(),
+          definitionId: item.id,
+          x: canvasX,
+          y: canvasY,
+          rotation: 0,
+          width: item.width * scale,
+          height: item.depth * scale,
+        };
+        useEditorStore.getState().addFurniture(instance);
+      } catch (err: any) {
+        console.error('[Canvas] Drop failed:', err);
+      }
+    };
+
+    const el = fc.getElement();
+    el.addEventListener('dragover', handleDragOver);
+    el.addEventListener('drop', handleDrop);
+    return () => {
+      el.removeEventListener('dragover', handleDragOver);
+      el.removeEventListener('drop', handleDrop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- On furniture move: update store ----
+  useEffect(() => {
+    const fc = fabricCanvasRef.current;
+    if (!fc) return;
+
+    const handleMove = () => {
+      const active = fc.getActiveObjects();
+      for (const obj of active) {
+        const fid = hfId(obj);
+        if (fid?.startsWith('furniture_')) {
+          const instId = fid.replace('furniture_', '');
+          const left = (obj as any).left ?? 0;
+          const top = (obj as any).top ?? 0;
+          const angle = (obj as any).angle ?? 0;
+          updateFurniture(instId, { x: left, y: top, rotation: angle });
+        }
+      }
+    };
+
+    fc.on('object:moving', handleMove);
+    fc.on('object:scaling', handleMove);
+    return () => {
+      fc.off('object:moving', handleMove);
+      fc.off('object:scaling', handleMove);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---- Keyboard shortcuts ----
   const isTyping = useCallback(() => {
     const el = document.activeElement;
@@ -413,6 +510,10 @@ export function Canvas() {
           useEditorStore.getState().removeDoor(objId.replace('door_', ''));
         } else if (objId?.startsWith('window_')) {
           useEditorStore.getState().removeWindow(objId.replace('window_', ''));
+        } else if (objId?.startsWith('furniture_')) {
+          useEditorStore.getState().removeFurniture(objId.replace('furniture_', ''));
+        } else if (objId?.startsWith('furniture_') && objId.endsWith('-label')) {
+          useEditorStore.getState().removeFurniture(objId.replace('furniture_', '').replace('-label', ''));
         }
         fc.remove(active);
         fc.discardActiveObject();
@@ -794,6 +895,129 @@ function syncWindows(canvas: FabricCanvas, windows: Window[], walls: Wall[]) {
     } as any);
     setHfId(winRect, `window_${win.id}`);
     canvas.add(winRect);
+  }
+
+  canvas.requestRenderAll();
+}
+
+// ============================================================
+// Sync dimension labels to canvas (show wall lengths)
+// ============================================================
+
+function syncDimensions(
+  canvas: FabricCanvas,
+  walls: Wall[],
+  pixelsPerFoot: number,
+) {
+  // Remove old dimension labels
+  removeByPrefix(canvas, 'dim-wall-');
+
+  for (const wall of walls) {
+    const lenFeet = getWallLengthFeet(wall, pixelsPerFoot);
+    const midX = (wall.start.x + wall.end.x) / 2;
+    const midY = (wall.start.y + wall.end.y) / 2;
+
+    // Position label slightly offset from wall center
+    const label = new FabricText(formatFeet(lenFeet), {
+      left: midX,
+      top: midY - 15,
+      originX: 'center',
+      originY: 'center',
+      fontSize: 11,
+      fill: '#2563EB',
+      fontFamily: 'JetBrains Mono, monospace',
+      backgroundColor: 'rgba(248, 250, 252, 0.85)',
+      padding: 2,
+      selectable: false,
+      evented: false,
+    } as any);
+
+    setHfId(label, `dim-wall-${wall.id}`);
+    canvas.add(label);
+  }
+
+  canvas.requestRenderAll();
+}
+
+// ============================================================
+// Sync furniture to Fabric canvas
+// ============================================================
+
+function syncFurniture(
+  canvas: FabricCanvas,
+  furniture: FurnitureInstance[],
+  walls: Wall[],
+) {
+  removeByPrefix(canvas, 'furniture_');
+
+  for (const item of furniture) {
+    const fabricId = `furniture_${item.id}`;
+    const def = findFurnitureDefinition(item.definitionId);
+    if (!def) continue;
+
+    const collides = furnitureOverlapsWall(
+      { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation },
+      walls,
+    );
+
+    const strokeColor = collides ? '#EF4444' : def.color;
+
+    let shape;
+    if (def.shape === 'circle') {
+      shape = new Circle({
+        left: item.x,
+        top: item.y,
+        radius: item.width / 2,
+        originX: 'center',
+        originY: 'center',
+        fill: def.fillColor,
+        stroke: strokeColor,
+        strokeWidth: collides ? 4 : 2,
+        selectable: true,
+        borderColor: collides ? '#EF4444' : '#2563EB',
+        cornerColor: '#2563EB',
+        cornerSize: 8,
+        transparentCorners: false,
+      } as any);
+    } else {
+      shape = new Rect({
+        left: item.x,
+        top: item.y,
+        width: item.width,
+        height: item.height,
+        originX: 'center',
+        originY: 'center',
+        fill: def.fillColor,
+        stroke: strokeColor,
+        strokeWidth: collides ? 4 : 2,
+        angle: item.rotation,
+        selectable: true,
+        borderColor: collides ? '#EF4444' : '#2563EB',
+        cornerColor: '#2563EB',
+        cornerSize: 8,
+        transparentCorners: false,
+      } as any);
+    }
+
+    setHfId(shape, fabricId);
+
+    // Label with name
+    const label = new FabricText(def.name, {
+      left: item.x,
+      top: item.y - item.height / 2 - 12,
+      originX: 'center',
+      originY: 'center',
+      fontSize: 10,
+      fill: collides ? '#EF4444' : '#6B7280',
+      fontFamily: 'Inter, monospace',
+      backgroundColor: '#F8FAFC',
+      selectable: false,
+      evented: false,
+    } as any);
+    setHfId(label, `${fabricId}-label`);
+
+    canvas.add(shape);
+    canvas.add(label);
   }
 
   canvas.requestRenderAll();
