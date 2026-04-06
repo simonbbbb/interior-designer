@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
-import { useCanvasStore } from '@/store';
+import { useCanvasStore, useUIStore } from '@/store';
 
 export function UploadModal() {
   const setBackgroundImage = useCanvasStore((s) => s.setBackgroundImage);
+  const setShowUploadModal = useUIStore((s) => s.setShowUploadModal);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(
@@ -28,28 +29,40 @@ export function UploadModal() {
     [handleFile],
   );
 
+  const dismiss = () => {
+    setShowUploadModal(false);
+  };
+
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-      <div className="w-full max-w-lg text-center">
-        <div className="mb-2 text-4xl">&#127968;</div>
-        <h2 className="mb-1 text-2xl font-bold text-gray-900">
+    <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
+      <div className="pointer-events-auto relative mx-4 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
+        <button
+          onClick={dismiss}
+          className="absolute right-3 top-3 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          title="Dismiss"
+        >
+          ✕
+        </button>
+
+        <div className="mb-2 text-center text-3xl">&#127968;</div>
+        <h2 className="mb-1 text-center text-lg font-semibold text-gray-900">
           Upload Your Floorplan
         </h2>
-        <p className="mb-6 text-gray-500">
-          Drag and drop a PNG or JPG, or click to browse
+        <p className="mb-4 text-center text-xs text-gray-500">
+          Or close this and start drawing walls from scratch
         </p>
 
         <div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onClick={() => fileInputRef.current?.click()}
-          className="cursor-pointer rounded-xl border-2 border-dashed border-gray-300 p-12 transition-colors hover:border-blue-400 hover:bg-blue-50"
+          className="cursor-pointer rounded-lg border-2 border-dashed border-gray-300 p-8 transition-colors hover:border-blue-400 hover:bg-blue-50"
         >
-          <div className="text-3xl">&#128193;</div>
-          <p className="mt-2 text-sm text-gray-500">
+          <div className="text-center text-2xl">&#128193;</div>
+          <p className="mt-2 text-center text-sm text-gray-500">
             Drop your floorplan here or click to select
           </p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-center text-xs text-gray-400">
             Supports PNG, JPG (max 20MB)
           </p>
         </div>

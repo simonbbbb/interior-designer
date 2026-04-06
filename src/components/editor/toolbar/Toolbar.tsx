@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { Tool } from '@/types';
-import { useCanvasStore, useHistoryStore } from '@/store';
+import { useCanvasStore, useHistoryStore, useUIStore } from '@/store';
 
 interface ToolDef {
   id: Tool;
@@ -20,13 +20,13 @@ const TOOLS: ToolDef[] = [
 export function Toolbar() {
   const activeTool = useCanvasStore((s) => s.activeTool);
   const setActiveTool = useCanvasStore((s) => s.setActiveTool);
-  const setBackgroundImage = useCanvasStore((s) => s.setBackgroundImage);
   const canUndo = useHistoryStore((s) => s.canUndo);
   const canRedo = useHistoryStore((s) => s.canRedo);
   const undoLabel = useHistoryStore((s) => s.undoLabel);
   const redoLabel = useHistoryStore((s) => s.redoLabel);
   const undo = useHistoryStore((s) => s.undo);
   const redo = useHistoryStore((s) => s.redo);
+  const setShowUploadModal = useUIStore((s) => s.setShowUploadModal);
 
   const handleToolClick = useCallback(
     (tool: Tool) => {
@@ -36,20 +36,8 @@ export function Toolbar() {
   );
 
   const handleUpload = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/png,image/jpeg';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        setBackgroundImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  }, [setBackgroundImage]);
+    setShowUploadModal(true);
+  }, [setShowUploadModal]);
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-4">

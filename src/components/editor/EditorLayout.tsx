@@ -1,6 +1,5 @@
 'use client';
 
-import { useRef, useCallback, useState } from 'react';
 import { useCanvasStore, useUIStore } from '@/store';
 import { Toolbar } from './toolbar/Toolbar';
 import { FurnitureSidebar } from './furniture/FurnitureSidebar';
@@ -9,49 +8,40 @@ import { StatusBar } from './statusbar/StatusBar';
 import { ScaleCalibrationModal } from './modals/ScaleCalibrationModal';
 import { UploadModal } from './modals/UploadModal';
 
-const MIN_WIDTH = 1024;
-
 export function EditorLayout() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [mobileBlocker, setMobileBlocker] = useState(false);
+  const hasBackground = useCanvasStore((s) => !!s.backgroundImage);
+  const showUploadModal = useUIStore((s) => s.showUploadModal);
+  const setShowUploadModal = useUIStore((s) => s.setShowUploadModal);
   const showScaleCalibration = useUIStore((s) => s.showScaleCalibration);
-  const showUploadModal = useCanvasStore((s) => !s.backgroundImage);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const activeTool = useCanvasStore((s) => s.activeTool);
 
-  // Mobile guard
-  if (typeof window !== 'undefined' && !mobileBlocker && window.innerWidth < MIN_WIDTH) {
-    setMobileBlocker(true);
-  }
-
-  const handleUndo = useCallback(() => {}, []);
-  const handleRedo = useCallback(() => {}, []);
-
-  if (mobileBlocker && typeof window !== 'undefined' && window.innerWidth < MIN_WIDTH) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="max-w-md rounded-xl bg-white p-8 text-center shadow-lg">
-          <div className="mb-4 text-5xl">{"\uD83D\uDCAA"}</div>
-          <h2 className="mb-2 text-xl font-bold text-gray-900">Desktop Recommended</h2>
-          <p className="text-gray-600">
-            HomeForge is optimized for desktop and tablet (1024px+).
-            Please open this page on a larger screen for the best experience.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Show upload modal on first visit (no background, not yet dismissed)
+  const showUpload = !hasBackground && showUploadModal;
 
   return (
-    <div ref={containerRef} className="flex h-screen flex-col overflow-hidden bg-gray-50">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-gray-50">
       <Toolbar />
       <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && <FurnitureSidebar />}
-        <Canvas />
+        {/* Canvas sits behind the upload modal but is still interactive */}
+        <div className="relative flex-1">
+          <Canvas />
+          {showUpload && (
+            <div className="pointer-events-none absolute inset-0 z-40">
+              <UploadModal />
+            </div>
+          )}
+          {!showUpload && !hasBackground && (
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="absolute bottom-4 right-4 z-20 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-lg transition hover:bg-blue-700"
+            >
+              Upload Floorplan
+            </button>
+          )}
+        </div>
       </div>
       <StatusBar />
-
-      {showUploadModal && <UploadModal />}
       {showScaleCalibration && <ScaleCalibrationModal />}
     </div>
   );
